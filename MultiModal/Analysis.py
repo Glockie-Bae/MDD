@@ -2,25 +2,100 @@ import numpy as np
 from scipy.signal import welch
 from pingouin import intraclass_corr
 from scipy.stats import pearsonr
+from statsmodels.stats.multitest import fdrcorrection
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.stats import mannwhitneyu
+from statsmodels.stats.multitest import fdrcorrection
 
+def corr_per_freq(X, y):
+    r_vals, p_vals = [], []
+    for i in range(X.shape[1]):
+        r, p = pearsonr(X[:, i], y)
+        r_vals.append(r)
+        p_vals.append(p)
+    return np.array(r_vals), np.array(p_vals)
+
+def gender_corr(col_name):
+    col_all = np.stack([r[col_name] for r in results])
+    male_col = col_all[[r['gender'] == 'M' for r in results]]
+    female_col = col_all[[r['gender'] == 'F' for r in results]]
+
+    male = rp3_all[[r['gender'] == 'M' for r in results]]
+    female = rp3_all[[r['gender'] == 'F' for r in results]]
+
+    r_phq_m, p_phq_m = corr_per_freq(male, male_col)
+    rej_phq_m, p_phq_m_fdr = fdrcorrection(p_phq_m)
+
+
+    r_phq_f, p_phq_f = corr_per_freq(female, female_col)
+    rej_phq_f, p_phq_f_fdr = fdrcorrection(p_phq_f)
+    # ===============画图===================
+    plt.figure(figsize=(8, 4))
+
+    plt.plot(freqs, r_phq_m, label='Male', color='red')
+    plt.plot(freqs, r_phq_f, label='Female', color='blue')
+
+    plt.axhline(0, linestyle='--', linewidth=1)
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Pearson r')
+    plt.title(f'Correlation between {col_name} and Relative Spectral Power')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    # ===============画图===================
+
+    # ===== 整理显著频点表 =====
+    sig_tables = {}
+
+    for label, rej, rvals, pvals in [
+        ('Male', rej_phq_m, r_phq_m, p_phq_m_fdr),
+        ('Female', rej_phq_f, r_phq_f, p_phq_f_fdr)
+    ]:
+        sig_idx = np.where(rej)[0]
+
+        if len(sig_idx) == 0:
+            print(f"\n{col_name} | {label}: ❌ FDR 校正后无显著频点")
+            sig_tables[label] = None
+        else:
+            df = pd.DataFrame({
+                'Frequency(Hz)': freqs[sig_idx],
+                'r': rvals[sig_idx],
+                'p_fdr': pvals[sig_idx]
+            })
+            print(f"\n{col_name} | {label}: ✅ FDR 显著频点：")
+            print(df)
+            sig_tables[label] = df
+
+    # 找最接近 11.9 Hz 的索引
+    idx_119 = np.argmin(np.abs(freqs - 11.9))
+
+    r_m, p_m = pearsonr(male[:, idx_119], male_col)
+    r_f, p_f = pearsonr(female[:, idx_119], female_col)
+
+    print(f"{col_name} feature 11.9 Hz Male:", r_m, p_m)
+    print(f"{col_name} feature 11.9 Hz Female:", r_f, p_f)
 
 results = np.load("egg_dataset.npz", allow_pickle=True)['arr_0']
 freqs = np.arange(4, 20.1, 0.1)
-
-
+label_all = np.stack([r['label'] for r in results])
 rp3_all = np.stack([r['rp_3ch'] for r in results])
 rp128_all = np.stack([r['rp_128ch'] for r in results])
+PHQ_all = np.stack([r['PHQ9'] for r in results])
 
 # 整体 Pearson
 r, p = pearsonr(rp3_all.mean(1), rp128_all.mean(1))
 print(f'Pearson r={r:.3f}, p={p:.4e}')
 
 
-from scipy.stats import mannwhitneyu
-from statsmodels.stats.multitest import fdrcorrection
 
 male = rp3_all[[r['gender']=='M' for r in results]]
 female = rp3_all[[r['gender']=='F' for r in results]]
+male_PHQ = PHQ_all[[r['gender']=='M' for r in results]]
+female_PHQ = PHQ_all[[r['gender']=='F' for r in results]]
+
+#===========探究性别与PHQ-9量表的相关性=======================
+
 
 pvals = []
 for i in range(rp3_all.shape[1]):
@@ -37,9 +112,7 @@ alpha_power = rp3_all[:, alpha_mask].mean(axis=1)
 from scipy.stats import pearsonr
 
 for scale in ['PHQ9', 'GAD7', 'CTQ']:
-    y = np.array([r[scale] for r in results])
-    r_val, p_val = pearsonr(alpha_power, y)
-    print(scale, r_val, p_val)
+    gender_corr(scale)
 
 from sklearn.metrics import roc_auc_score
 
@@ -49,8 +122,6 @@ print("ROC-AUC:", auc)
 
 
 # ================绘制个体差异=======================
-import matplotlib.pyplot as plt
-import numpy as np
 
 N = rp3_all.shape[0]
 
@@ -118,35 +189,32 @@ plt.legend()
 plt.title('Mean spectral power ± SD')
 plt.show()
 
-# ================绘制性别差异=======================
-# genders = results['gender'].values   # length = N_subjects
-#
-#
-# male_idx   = genders == 'M'
-# female_idx = genders == 'F'
-#
-# mean_male = rp3_all[male_idx].mean(axis=0)
-# std_male  = rp3_all[male_idx].std(axis=0)
-#
-# mean_fem = rp3_all[female_idx].mean(axis=0)
-# std_fem  = rp3_all[female_idx].std(axis=0)
-#
-# plt.figure(figsize=(7,5))
-#
-# plt.plot(freqs, mean_male, color='blue', label='Male')
-# plt.fill_between(freqs,
-#                  mean_male - std_male,
-#                  mean_male + std_male,
-#                  color='blue', alpha=0.3)
-#
-# plt.plot(freqs, mean_fem, color='red', label='Female')
-# plt.fill_between(freqs,
-#                  mean_fem - std_fem,
-#                  mean_fem + std_fem,
-#                  color='red', alpha=0.3)
-#
-# plt.xlabel('Frequency (Hz)')
-# plt.ylabel('Relative Power')
-# plt.legend()
-# plt.title('Gender-based spectral power (3-channel)')
-# plt.show()
+#================绘制性别差异=======================
+male_rp3 = rp3_all[[r['gender']=='M' for r in results]]
+female_rp3 = rp3_all[[r['gender']=='F' for r in results]]
+
+mean_male = male_rp3.mean(axis=0)
+std_male  = male_rp3.std(axis=0)
+
+mean_fem = female_rp3.mean(axis=0)
+std_fem  = female_rp3.std(axis=0)
+
+plt.figure(figsize=(7,5))
+
+plt.plot(freqs, mean_male, color='blue', label='Male')
+plt.fill_between(freqs,
+                 mean_male - std_male,
+                 mean_male + std_male,
+                 color='blue', alpha=0.3)
+
+plt.plot(freqs, mean_fem, color='red', label='Female')
+plt.fill_between(freqs,
+                 mean_fem - std_fem,
+                 mean_fem + std_fem,
+                 color='red', alpha=0.3)
+
+plt.xlabel('Frequency (Hz)')
+plt.ylabel('Relative Power')
+plt.legend()
+plt.title('Gender-based spectral power (3-channel)')
+plt.show()
