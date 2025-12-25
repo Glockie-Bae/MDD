@@ -16,13 +16,21 @@ def corr_per_freq(X, y):
         p_vals.append(p)
     return np.array(r_vals), np.array(p_vals)
 
-def gender_corr(col_name):
+def gender_corr(col_name, rp = 3):
     col_all = np.stack([r[col_name] for r in results])
     male_col = col_all[[r['gender'] == 'M' for r in results]]
     female_col = col_all[[r['gender'] == 'F' for r in results]]
 
-    male = rp3_all[[r['gender'] == 'M' for r in results]]
-    female = rp3_all[[r['gender'] == 'F' for r in results]]
+    if rp == 3:
+        male = rp3_all[[r['gender'] == 'M' for r in results]]
+        female = rp3_all[[r['gender'] == 'F' for r in results]]
+    elif rp == 128:
+        male = rp128_all[[r['gender'] == 'M' for r in results]]
+        female = rp128_all[[r['gender'] == 'F' for r in results]]
+    else:
+        print("rp 输入错误，需要输入 3 或者 128")
+        return
+
 
     r_phq_m, p_phq_m = corr_per_freq(male, male_col)
     rej_phq_m, p_phq_m_fdr = fdrcorrection(p_phq_m)
@@ -84,7 +92,7 @@ rp128_all = np.stack([r['rp_128ch'] for r in results])
 PHQ_all = np.stack([r['PHQ9'] for r in results])
 
 # 整体 Pearson
-r, p = pearsonr(rp3_all.mean(1), rp128_all.mean(1))
+r, p = pearsonr(rp3_all.mean(0), rp128_all.mean(0))
 print(f'Pearson r={r:.3f}, p={p:.4e}')
 
 
@@ -112,7 +120,7 @@ alpha_power = rp3_all[:, alpha_mask].mean(axis=1)
 from scipy.stats import pearsonr
 
 for scale in ['PHQ9', 'GAD7', 'CTQ']:
-    gender_corr(scale)
+    gender_corr(scale, 128)
 
 from sklearn.metrics import roc_auc_score
 
